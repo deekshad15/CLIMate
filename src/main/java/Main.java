@@ -23,8 +23,14 @@ public class Main {
 
             String weatherJson = weatherAPI.getCurrentWeatherJson(
                     coordinates[0], coordinates[1]);
-            System.out.println("Current weather JSON:");
-            System.out.println(weatherJson);
+            WeatherData weather = weatherAPI.parseCurrentWeather(weatherJson);
+
+            System.out.println("Current weather:");
+            System.out.println("Temperature: " + weather.getTemperature() + " °F");
+            System.out.println("Feels like: " + weather.getApparentTemperature() + " °F");
+            System.out.println("Conditions: " + weather.getConditions());
+            System.out.println("Wind speed: " + weather.getWindSpeed() + " mph");
+            System.out.println("Precipitation: " + weather.getPrecipitation() + " mm");
         }
     }
 }
