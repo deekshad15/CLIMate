@@ -20,6 +20,11 @@ public class Main {
         } else {
             System.out.println("Latitude: " + coordinates[0]);
             System.out.println("Longitude: " + coordinates[1]);
+
+            String weatherJson = weatherAPI.getCurrentWeatherJson(
+                    coordinates[0], coordinates[1]);
+            System.out.println("Current weather JSON:");
+            System.out.println(weatherJson);
         }
     }
 }
