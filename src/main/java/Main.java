@@ -31,6 +31,11 @@ public class Main {
             System.out.println("Conditions: " + weather.getConditions());
             System.out.println("Wind speed: " + weather.getWindSpeed() + " mph");
             System.out.println("Precipitation: " + weather.getPrecipitation() + " mm");
+
+            ClothingRecommender recommender = new ClothingRecommender();
+            System.out.println();
+            System.out.println("Clothing recommendation:");
+            System.out.println(recommender.getRecommendation(weather));
         }
     }
 }
