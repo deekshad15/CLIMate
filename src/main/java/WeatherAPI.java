@@ -1,5 +1,7 @@
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.net.URI;
@@ -8,10 +10,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 
 /** Looks up city coordinates using the Open-Meteo Geocoding API. */
 public class WeatherAPI {
-    private final HttpClient client = HttpClient.newHttpClient();
+    private final HttpClient client = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
 
     /**
      * Returns the latitude and longitude for a city, or null when no city is found.
@@ -23,22 +28,36 @@ public class WeatherAPI {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
+                .timeout(Duration.ofSeconds(20))
                 .GET()
                 .build();
 
         HttpResponse<String> response = client.send(
                 request, HttpResponse.BodyHandlers.ofString());
 
-        JsonObject responseData = JsonParser.parseString(response.body()).getAsJsonObject();
-        JsonArray results = responseData.getAsJsonArray("results");
+        ensureSuccessfulResponse(response, "Geocoding");
 
-        if (results == null || results.size() == 0) {
+        JsonObject responseData = parseObject(response.body(), "Geocoding");
+        JsonElement resultsElement = responseData.get("results");
+        if (resultsElement == null || resultsElement.isJsonNull()) {
+            return null;
+        }
+        if (!resultsElement.isJsonArray()) {
+            throw new IOException("Geocoding service returned invalid city results.");
+        }
+        JsonArray results = resultsElement.getAsJsonArray();
+
+        if (results.size() == 0) {
             return null;
         }
 
-        JsonObject firstResult = results.get(0).getAsJsonObject();
-        double latitude = firstResult.get("latitude").getAsDouble();
-        double longitude = firstResult.get("longitude").getAsDouble();
+        JsonElement firstElement = results.get(0);
+        if (!firstElement.isJsonObject()) {
+            throw new IOException("Geocoding service returned invalid city coordinates.");
+        }
+        JsonObject firstResult = firstElement.getAsJsonObject();
+        double latitude = getRequiredNumber(firstResult, "latitude");
+        double longitude = getRequiredNumber(firstResult, "longitude");
 
         return new double[] {latitude, longitude};
     }
@@ -54,34 +73,80 @@ public class WeatherAPI {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
+                .timeout(Duration.ofSeconds(20))
                 .GET()
                 .build();
 
         HttpResponse<String> response = client.send(
                 request, HttpResponse.BodyHandlers.ofString());
 
+        ensureSuccessfulResponse(response, "Weather");
         return response.body();
     }
 
     /** Parses the current weather values from an Open-Meteo JSON response. */
-    public WeatherData parseCurrentWeather(String weatherJson) {
-        JsonObject response = JsonParser.parseString(weatherJson).getAsJsonObject();
-        JsonObject current = response.getAsJsonObject("current");
+    public WeatherData parseCurrentWeather(String weatherJson) throws IOException {
+        JsonObject response = parseObject(weatherJson, "Weather");
+        JsonElement currentElement = response.get("current");
+        if (currentElement == null || !currentElement.isJsonObject()) {
+            throw new IOException("Weather response is missing current conditions.");
+        }
+        JsonObject current = currentElement.getAsJsonObject();
 
-        double temperature = Double.parseDouble(
-                current.get("temperature_2m").getAsString());
-        double apparentTemperature = Double.parseDouble(
-                current.get("apparent_temperature").getAsString());
-        double precipitation = Double.parseDouble(
-                current.get("precipitation").getAsString());
-        double windSpeed = Double.parseDouble(
-                current.get("wind_speed_10m").getAsString());
-
-        int weatherCode = current.get("weather_code").getAsInt();
+        double temperature = getRequiredNumber(current, "temperature_2m");
+        double apparentTemperature = getRequiredNumber(current, "apparent_temperature");
+        double precipitation = getRequiredNumber(current, "precipitation");
+        double windSpeed = getRequiredNumber(current, "wind_speed_10m");
+        int weatherCode = getRequiredInteger(current, "weather_code");
         String conditions = getWeatherDescription(weatherCode);
 
         return new WeatherData(
                 temperature, apparentTemperature, conditions, windSpeed, precipitation);
+    }
+
+    private void ensureSuccessfulResponse(HttpResponse<String> response, String service)
+            throws IOException {
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IOException(service + " service returned HTTP " + response.statusCode() + ".");
+        }
+    }
+
+    private JsonObject parseObject(String json, String service) throws IOException {
+        try {
+            JsonElement parsed = JsonParser.parseString(json);
+            if (!parsed.isJsonObject()) {
+                throw new IOException(service + " service returned an invalid response.");
+            }
+            return parsed.getAsJsonObject();
+        } catch (JsonParseException e) {
+            throw new IOException(service + " service returned invalid JSON.", e);
+        }
+    }
+
+    private double getRequiredNumber(JsonObject object, String field) throws IOException {
+        JsonElement value = object.get(field);
+        if (value == null || value.isJsonNull() || !value.isJsonPrimitive()
+                || !value.getAsJsonPrimitive().isNumber()) {
+            throw new IOException("API response is missing numeric data for '" + field + "'.");
+        }
+
+        try {
+            double number = value.getAsDouble();
+            if (!Double.isFinite(number)) {
+                throw new IOException("API response contains invalid data for '" + field + "'.");
+            }
+            return number;
+        } catch (NumberFormatException e) {
+            throw new IOException("API response contains invalid data for '" + field + "'.", e);
+        }
+    }
+
+    private int getRequiredInteger(JsonObject object, String field) throws IOException {
+        double value = getRequiredNumber(object, field);
+        if (value != Math.rint(value) || value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+            throw new IOException("API response contains invalid data for '" + field + "'.");
+        }
+        return (int) value;
     }
 
     /** Converts an Open-Meteo weather code into a readable description. */
