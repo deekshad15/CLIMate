@@ -3,7 +3,7 @@ import java.util.Scanner;
 
 /** Starts the CLIMate command-line application. */
 public class Main {
-    public static void main(String[] args) throws IOException, InterruptedException {
+    public static void main(String[] args) {
         System.out.println("========================================");
         System.out.println("          Welcome to CLIMate");
         System.out.println(" Get current weather and outfit advice");
@@ -16,6 +16,10 @@ public class Main {
 
         while (true) {
             System.out.print("\nCity: ");
+            if (!scanner.hasNextLine()) {
+                System.out.println("\nGoodbye!");
+                break;
+            }
             String city = scanner.nextLine().trim();
 
             if (isExitCommand(city)) {
@@ -27,16 +31,25 @@ public class Main {
                 continue;
             }
 
-            double[] coordinates = weatherAPI.getCoordinates(city);
-            if (coordinates == null) {
-                System.out.println("City not found. Try another city or type 'exit'.");
-                continue;
-            }
+            try {
+                double[] coordinates = weatherAPI.getCoordinates(city);
+                if (coordinates == null) {
+                    System.out.println("City not found. Try another city or type 'exit'.");
+                    continue;
+                }
 
-            String weatherJson = weatherAPI.getCurrentWeatherJson(
-                    coordinates[0], coordinates[1]);
-            WeatherData weather = weatherAPI.parseCurrentWeather(weatherJson);
-            printWeather(city, weather, recommender);
+                String weatherJson = weatherAPI.getCurrentWeatherJson(
+                        coordinates[0], coordinates[1]);
+                WeatherData weather = weatherAPI.parseCurrentWeather(weatherJson);
+                printWeather(city, weather, recommender);
+            } catch (IOException e) {
+                System.out.println("Weather lookup failed: " + e.getMessage());
+                System.out.println("Please try again.");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                System.out.println("Weather lookup was interrupted. Exiting.");
+                break;
+            }
         }
     }
 
